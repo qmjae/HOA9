@@ -1,0 +1,58 @@
+---
+- hosts: all
+  become: true
+  pre_tasks:
+    - name: install updates (CentOS)
+      tags: always
+      dnf:
+        update_only: yes
+        update_cache: yes
+      when: ansible_distribution == "CentOS"
+
+    - name: install updates (Ubuntu)
+      tags: always
+      apt:
+        upgrade: dist
+        update_cache: yes
+      when: ansible_distribution == "Ubuntu"
+
+- hosts: workstations
+  become: true
+  tasks:
+    - name: Install Prometheus and Node Exporter (CentOS)
+      dnf:
+        name:
+          - golang-github-prometheus-node-exporter
+        state: present
+      when: ansible_distribution == "CentOS"
+
+    - name: Configure Prometheus to Monitor Node Exporter (CentOS)
+      lineinfile:
+        path: /etc/prometheus/prometheus.yml
+        state: present
+        line: " - job_name: 'node_exporter'"
+      notify: restart prometheus
+      when: ansible_distribution == "CentOS"
+
+    - name: Install Prometheus and Node Exporter (Ubuntu)
+      apt:
+        name:
+          - prometheus
+          - prometheus-node-exporter
+        state: present
+      when: ansible_distribution == "Ubuntu"
+   
+    - name: Configure Prometheus to Monitor Node Exporter (Ubuntu)
+      lineinfile:
+        path: /etc/prometheus/prometheus.yml
+        state: present
+        line: " - job_name: 'node_exporter'"
+      notify: restart prometheus
+      when: ansible_distribution == "Ubuntu"
+
+  handlers:
+    - name: restart prometheus
+      service:
+        name: "{{ 'golang-github-prometheus-node-exporter' if ansible_distribution == 'CentOS' else 'prometheus' }}"
+        state: restarted
+

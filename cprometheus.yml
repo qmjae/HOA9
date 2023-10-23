@@ -1,0 +1,101 @@
+---
+- hosts: all
+  become: true
+  pre_tasks:
+    - name: Install updates (CentOS)
+      tags: always
+      dnf:
+        update_only: yes
+        update_cache: yes
+      when: ansible_distribution == "CentOS"
+
+    - name: Install updates (Ubuntu)
+      tags: always
+      apt:
+        upgrade: dist
+        update_cache: yes
+      when: ansible_distribution == "Ubuntu"
+
+- hosts: workstations
+  become: true
+  tasks:
+    - name: Install Prometheus and Node Exporter (CentOS)
+      dnf:
+        name:
+          - golang-github-prometheus-node-exporter
+        state: present
+      when: ansible_distribution == "CentOS"
+
+    - name: Configure Prometheus to Monitor Node Exporter (CentOS)
+      lineinfile:
+        path: /etc/prometheus/prometheus.yml
+        state: present
+        line: " - job_name: 'node_exporter'"
+      notify: restart prometheus
+      when: ansible_distribution == "CentOS"
+
+    - name: Ensure the Prometheus extraction directory exists (Ubuntu)
+      stat:
+        path: ~/prometheus
+      register: prometheus_dir_stat
+      when: ansible_distribution == "Ubuntu"
+
+    - name: Install Prometheus (Ubuntu)
+      unarchive:
+        src: https://github.com/prometheus/prometheus/releases/download/v2.43.0/prometheus-2.43.0.linux-amd64.tar.gz
+        dest: ~/prometheus
+        remote_src: yes
+        mode: 0777
+        owner: root
+        group: root
+      when: ansible_distribution == "Ubuntu" and not prometheus_dir_stat.stat.exists
+
+    - name: Additional / Update Current Packages (Ubuntu)
+      apt:
+        name:
+          - nginx
+          - wget
+          - python3-jmespath
+        state: present
+      when: ansible_distribution == "Ubuntu"
+    
+    - name: Executable Files for Prometheus
+      shell: |
+        cd ~/prometheus/prometheus*
+        cp -r . /usr/local/bin/prometheus
+    
+    - name: Import Files for Prometheus
+      copy:
+        src: /etc/systemd/system/prometheus.service   # Specify the correct path on your Ansible controller
+        dest: /etc/systemd/system/prometheus.service
+        mode: '0777'
+        owner: root
+        group: root
+      when: ansible_distribution == "Ubuntu"
+
+    - name: Directory for Prometheus Extraction
+      file:
+        path: ~/prometheus
+        state: directory
+
+    - name: Verification of Installation (Ubuntu)
+      service:
+        name: prometheus
+        state: restarted
+        enabled: true
+      when: ansible_distribution == "Ubuntu"
+   
+    - name: Configure Prometheus to Monitor Node Exporter (Ubuntu)
+      lineinfile:
+        path: /etc/prometheus/prometheus.yml
+        state: present
+        line: " - job_name: 'node_exporter'"
+      notify: restart prometheus
+      when: ansible_distribution == "Ubuntu"
+
+  handlers:
+    - name: restart prometheus
+      service:
+        name: "{{ 'golang-github-prometheus-node-exporter' if ansible_distribution == 'CentOS' else 'prometheus' }}"
+        state: restarted
+
